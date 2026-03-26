@@ -1,0 +1,122 @@
+-- =============================================================
+--  PAQUEXPRESS S.A. de C.V.
+--  Script de creación de base de datos
+--  Motor: MySQL 8.0+
+-- =============================================================
+ 
+CREATE DATABASE IF NOT EXISTS paquexpress
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+ 
+USE paquexpress;
+ 
+-- -------------------------------------------------------------
+-- Tabla: agentes
+-- Almacena los usuarios (agentes de entrega) del sistema.
+-- La contraseña se guarda como hash bcrypt (nunca en texto plano).
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agentes (
+    id            INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    nombre        VARCHAR(100)    NOT NULL,
+    email         VARCHAR(150)    NOT NULL UNIQUE,
+    password_hash VARCHAR(255)    NOT NULL,          -- bcrypt hash
+    activo        TINYINT(1)      NOT NULL DEFAULT 1,
+    creado_en     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                           ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_agentes_email (email)
+) ENGINE=InnoDB;
+ 
+-- -------------------------------------------------------------
+-- Tabla: sesiones
+-- Tokens JWT / refresh tokens activos por agente.
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sesiones (
+    id            INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    agente_id     INT UNSIGNED    NOT NULL,
+    token         VARCHAR(512)    NOT NULL UNIQUE,   -- JWT o refresh token
+    expira_en     DATETIME        NOT NULL,
+    creado_en     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_sesiones_agente
+        FOREIGN KEY (agente_id) REFERENCES agentes (id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    INDEX idx_sesiones_token (token),
+    INDEX idx_sesiones_agente (agente_id)
+) ENGINE=InnoDB;
+ 
+-- -------------------------------------------------------------
+-- Tabla: paquetes
+-- Catálogo de paquetes asignados a cada agente.
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS paquetes (
+    id               INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    codigo_paquete   VARCHAR(50)     NOT NULL UNIQUE,  -- ID único legible
+    agente_id        INT UNSIGNED    NOT NULL,
+    destinatario     VARCHAR(150)    NOT NULL,
+    direccion        VARCHAR(300)    NOT NULL,
+    ciudad           VARCHAR(100)    NOT NULL,
+    estado_paquete   ENUM(
+                         'pendiente',
+                         'en_ruta',
+                         'entregado',
+                         'fallido'
+                     ) NOT NULL DEFAULT 'pendiente',
+    creado_en        DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                              ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_paquetes_agente
+        FOREIGN KEY (agente_id) REFERENCES agentes (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_paquetes_agente  (agente_id),
+    INDEX idx_paquetes_estado  (estado_paquete)
+) ENGINE=InnoDB;
+ 
+-- -------------------------------------------------------------
+-- Tabla: entregas
+-- Registro de cada acción de entrega realizada por un agente.
+-- Guarda la foto (ruta/URL), coordenadas GPS y timestamp.
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS entregas (
+    id              INT UNSIGNED    NOT NULL AUTO_INCREMENT,
+    paquete_id      INT UNSIGNED    NOT NULL,
+    agente_id       INT UNSIGNED    NOT NULL,
+    foto_url        VARCHAR(500)    NOT NULL,          -- ruta o URL S3/local
+    latitud         DECIMAL(10, 7)  NOT NULL,          -- ej. 20.5887932
+    longitud        DECIMAL(10, 7)  NOT NULL,          -- ej. -100.3898940
+    entregado_en    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notas           TEXT            NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_entregas_paquete
+        FOREIGN KEY (paquete_id) REFERENCES paquetes (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_entregas_agente
+        FOREIGN KEY (agente_id) REFERENCES agentes (id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_entregas_paquete (paquete_id),
+    INDEX idx_entregas_agente  (agente_id),
+    INDEX idx_entregas_fecha   (entregado_en)
+) ENGINE=InnoDB;
+ 
+-- =============================================================
+-- DATOS DE PRUEBA
+-- =============================================================
+ 
+-- Agentes (password = "Test1234!" hasheada con bcrypt rounds=12)
+INSERT INTO agentes (nombre, email, password_hash) VALUES
+('Carlos Ramírez',  'carlos@paquexpress.mx',
+ '$2b$12$eImiTXuWVxfM37uY4JANjOe5XtGpQkM9kVRy5jS6Wp0hRvWfEHJ6.'),
+('Laura Méndez',    'laura@paquexpress.mx',
+ '$2b$12$eImiTXuWVxfM37uY4JANjOe5XtGpQkM9kVRy5jS6Wp0hRvWfEHJ6.'),
+('Pedro Ortiz',     'pedro@paquexpress.mx',
+ '$2b$12$eImiTXuWVxfM37uY4JANjOe5XtGpQkM9kVRy5jS6Wp0hRvWfEHJ6.');
+ 
+-- Paquetes de prueba
+INSERT INTO paquetes (codigo_paquete, agente_id, destinatario, direccion, ciudad) VALUES
+('PKG-001', 1, 'Ana Torres',    'Av. Constituyentes 150, Col. Centro',      'Querétaro'),
+('PKG-002', 1, 'Jorge López',   'Calle Hidalgo 45, Col. Las Flores',        'Querétaro'),
+('PKG-003', 2, 'Sofía Guzmán',  'Blvd. Bernardo Quintana 300, Col. Prados', 'Querétaro'),
+('PKG-004', 2, 'Luis Herrera',  'Calle Morelos 88, Col. San Pablo',         'Querétaro'),
+('PKG-005', 3, 'Mónica Ruiz',   'Av. 5 de Febrero 210, Col. Cimatario',    'Querétaro');
